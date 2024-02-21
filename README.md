@@ -5,6 +5,9 @@ This toy synthesizer is intended to teach basics of
 synthesizer-building: it is quite simple and otherwise kind
 of useless.
 
+Much of the code is adapted from my teaching synthesizer
+[`fm`](https://github.com/pdx-cs-sound/fm).
+
 ## Notes
 
 Note that that `mido` used by this will not work with
