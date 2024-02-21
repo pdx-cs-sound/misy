@@ -2,7 +2,7 @@ import mido, sounddevice
 import numpy as np
 
 samplerate = 48000
-blocksize = 1024
+blocksize = 16
 
 # keyboard = mido.open_input('fmlite', virtual=True)
 keyboard = mido.open_input('USB Oxygen 8 v2 MIDI 1')
@@ -10,6 +10,7 @@ keyboard = mido.open_input('USB Oxygen 8 v2 MIDI 1')
 sample_clock = 0
 out_key = None
 out_frequency = None
+out_osc = 0
 
 def output_callback(out_data, frame_count, time_info, status):
     global sample_clock
@@ -24,7 +25,12 @@ def output_callback(out_data, frame_count, time_info, status):
             frame_count,
             dtype=np.float32,
         )
-        samples = np.sin(2 * np.pi * out_frequency * t, dtype=np.float32)
+        if out_osc == 0:
+            samples = np.sin(2 * np.pi * out_frequency * t, dtype=np.float32)
+        elif out_osc == 1:
+            samples = (out_frequency * t) % 2.0 - 1.0
+        else:
+            assert False
     else:
         samples = np.zeros(frame_count, dtype=np.float32)
     # Reshape to have an array of 1 sample for each frame.
@@ -44,7 +50,7 @@ def key_to_freq(key):
     return 440 * 2 ** ((key - 69) / 12)
 
 def process_midi_event():
-    global out_key, out_frequency
+    global out_key, out_frequency, out_osc
 
     mesg = keyboard.receive()
     mesg_type = mesg.type
@@ -67,6 +73,9 @@ def process_midi_event():
         if mesg.control == 23:
             print('stop')
             return False
+        elif mesg.control == 21 or mesg.control == 22:
+            print('program change')
+            out_osc = (out_osc + 1) % 2
         else:
             print(f"control", mesg.control, mesg.value)
     elif mesg.type == 'pitchwheel':
