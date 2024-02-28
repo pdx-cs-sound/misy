@@ -9,8 +9,9 @@ keyboard = mido.open_input('USB Oxygen 8 v2 MIDI 1')
 
 sample_clock = 0
 out_key = None
-out_frequency = None
 out_osc = 0
+# Set of currently playing keys.
+out_keys = set()
 
 def output_callback(out_data, frame_count, time_info, status):
     global sample_clock
@@ -18,21 +19,24 @@ def output_callback(out_data, frame_count, time_info, status):
     if status:
         print("ocb", status)
 
-    if out_frequency:
-        t = np.linspace(
-            sample_clock / samplerate,
-            (sample_clock + frame_count) / samplerate,
-            frame_count,
-            dtype=np.float32,
-        )
+    samples = np.zeros(frame_count, dtype=np.float32)
+    t = np.linspace(
+        sample_clock / samplerate,
+        (sample_clock + frame_count) / samplerate,
+        frame_count,
+        dtype=np.float32,
+    )
+    for key in out_keys:
+        out_frequency = key_to_freq(key)
         if out_osc == 0:
-            samples = np.sin(2 * np.pi * out_frequency * t, dtype=np.float32)
+            samples += np.sin(2 * np.pi * out_frequency * t, dtype=np.float32)
         elif out_osc == 1:
-            samples = (out_frequency * t) % 2.0 - 1.0
+            samples += (out_frequency * t) % 2.0 - 1.0
         else:
             assert False
-    else:
-        samples = np.zeros(frame_count, dtype=np.float32)
+    if out_keys:
+        samples *= 1.0 / len(out_keys)
+
     # Reshape to have an array of 1 sample for each frame.
     out_data[:] = np.reshape(samples, (frame_count, 1))
 
@@ -60,15 +64,13 @@ def process_midi_event():
         key = mesg.note
         velocity = mesg.velocity / 127
         print('note on', key, mesg.velocity, round(velocity, 2))
-        out_key = key
-        out_frequency = key_to_freq(key)
+        out_keys.add(key)
     elif mesg_type == 'note_off':
         key = mesg.note
         velocity = round(mesg.velocity / 127, 2)
         print('note off', key, mesg.velocity, velocity)
-        if key == out_key:
-            out_key = None
-            out_frequency = None
+        if key in out_keys:
+            out_keys.remove(key)
     elif mesg.type == 'control_change':
         if mesg.control == 23:
             print('stop')
