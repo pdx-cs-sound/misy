@@ -34,8 +34,11 @@ def output_callback(out_data, frame_count, time_info, status):
             samples += (out_frequency * t) % 2.0 - 1.0
         else:
             assert False
-    if out_keys:
+    nkeys = len(out_keys)
+    if nkeys > 8:
         samples *= 1.0 / len(out_keys)
+    else:
+        samples *= 1.0 / 8.0
 
     # Reshape to have an array of 1 sample for each frame.
     out_data[:] = np.reshape(samples, (frame_count, 1))
