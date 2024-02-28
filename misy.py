@@ -1,19 +1,21 @@
 import mido, sounddevice
 import numpy as np
 
-samplerate = 48000
+sample_rate = 48000
 blocksize = 16
 
 # keyboard = mido.open_input('fmlite', virtual=True)
 keyboard = mido.open_input('USB Oxygen 8 v2 MIDI 1')
 
 sample_clock = 0
-out_key = None
 out_osc = 0
 # Set of currently playing keys.
-out_keys = set()
+out_keys = dict()
 
 note_messages = False
+
+# Attack time in seconds.
+attack_time = 0.020
 
 def output_callback(out_data, frame_count, time_info, status):
     global sample_clock
@@ -23,8 +25,8 @@ def output_callback(out_data, frame_count, time_info, status):
 
     samples = np.zeros(frame_count, dtype=np.float32)
     t = np.linspace(
-        sample_clock / samplerate,
-        (sample_clock + frame_count) / samplerate,
+        sample_clock / sample_rate,
+        (sample_clock + frame_count) / sample_rate,
         frame_count,
         dtype=np.float32,
     )
@@ -36,6 +38,21 @@ def output_callback(out_data, frame_count, time_info, status):
             samples += (out_frequency * t) % 2.0 - 1.0
         else:
             assert False
+        
+        attack_time_remaining = out_keys[key]
+        if attack_time_remaining > 0.0:
+            start_gain = 1.0 - attack_time_remaining / attack_time
+            end_time = frame_count / sample_rate
+            end_gain = 1.0 - (attack_time_remaining - end_time) / attack_time
+            envelope = np.clip(
+                np.linspace(start_gain, end_gain, frame_count),
+                0.0,
+                1.0,
+            )
+            samples *= envelope
+            attack_time_remaining -= end_time
+            out_keys[key] = attack_time_remaining
+
     nkeys = len(out_keys)
     if nkeys > 8:
         samples *= 1.0 / len(out_keys)
@@ -48,7 +65,7 @@ def output_callback(out_data, frame_count, time_info, status):
     sample_clock += frame_count
 
 output_stream = sounddevice.OutputStream(
-    samplerate=samplerate,
+    samplerate=sample_rate,
     channels=1,
     blocksize=blocksize,
     callback=output_callback,
@@ -70,14 +87,14 @@ def process_midi_event():
         velocity = mesg.velocity / 127
         if note_messages:
             print('note on', key, mesg.velocity, round(velocity, 2))
-        out_keys.add(key)
+        out_keys[key] = attack_time
     elif mesg_type == 'note_off':
         key = mesg.note
         velocity = round(mesg.velocity / 127, 2)
         if note_messages:
             print('note off', key, mesg.velocity, velocity)
         if key in out_keys:
-            out_keys.remove(key)
+            del out_keys[key]
     elif mesg.type == 'control_change':
         if mesg.control == 23:
             print('stop')
