@@ -13,6 +13,8 @@ out_osc = 0
 # Set of currently playing keys.
 out_keys = set()
 
+note_messages = False
+
 def output_callback(out_data, frame_count, time_info, status):
     global sample_clock
 
@@ -66,12 +68,14 @@ def process_midi_event():
     if mesg_type == 'note_on':
         key = mesg.note
         velocity = mesg.velocity / 127
-        print('note on', key, mesg.velocity, round(velocity, 2))
+        if note_messages:
+            print('note on', key, mesg.velocity, round(velocity, 2))
         out_keys.add(key)
     elif mesg_type == 'note_off':
         key = mesg.note
         velocity = round(mesg.velocity / 127, 2)
-        print('note off', key, mesg.velocity, velocity)
+        if note_messages:
+            print('note off', key, mesg.velocity, velocity)
         if key in out_keys:
             out_keys.remove(key)
     elif mesg.type == 'control_change':
