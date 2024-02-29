@@ -2,10 +2,9 @@
 Bart Massey 2024
 
 This toy synthesizer is intended to teach basics of
-synthesizer-building: it is quite simple and otherwise kind
-of useless.
+synthesizer-building: it is quite simple, but still usable.
 
-Much of the code is adapted from my teaching synthesizer
+Some of the code is adapted from my teaching synthesizer
 [`fm`](https://github.com/pdx-cs-sound/fm).
 
 ## Notes
