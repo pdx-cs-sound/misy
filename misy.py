@@ -38,10 +38,9 @@ out_keys = dict()
 log_notes = False
 
 # Attack time in seconds.
-#
-# XXX This is the uncompleted beginning of an ADSR envelope
-# implementation.
 attack_time = 0.020
+# Release time in seconds.
+release_time = 0.1
 
 # This count of the number of samples output so far is
 # used to make sure that waveforms are generated with
@@ -58,10 +57,11 @@ class Note:
         self.attack_time_remaining = attack_time
         self.out_osc = osc
         self.playing = True
+        self.release_time_remaining = None
 
     # Note has been released.
     def release(self):
-        self.playing = False
+        self.release_time_remaining = release_time
 
     # Accept a time linspace to generate samples in.  Return
     # that many samples of note being played, or None if
@@ -81,9 +81,40 @@ class Note:
         else:
             assert False
 
-        # Do attack part of ADSR envelope.
-        attack_time_remaining = self.attack_time_remaining
-        if attack_time_remaining > 0.0:
+        if self.release_time_remaining is not None:
+            # Do release part of ADSR envelope.
+            release_time_remaining = self.release_time_remaining
+            if release_time_remaining <= 0:
+                self.playing = False
+                return None
+            # Figure out the gain at the starting time according
+            # to a linear ramp.
+            start_gain = release_time_remaining / release_time
+            # Figure out the time after the last sample, and
+            # adjust the release_time_remaining to reflect it.
+            end_time = frame_count / sample_rate
+            release_time_remaining -= end_time
+            # Figure out the gain at the ending time according
+            # to a linear ramp.
+            end_gain = release_time_remaining / release_time
+            # Calculate the linear slope over the samples. Make
+            # sure it doesn't go below 0.0 due to finishing the
+            # release in the middle.
+            #
+            # XXX This should probably be linear in dBFS rather than
+            # linear in amplitude, but meh.
+            envelope = np.clip(
+                np.linspace(start_gain, end_gain, frame_count),
+                0.0,
+                1.0,
+            )
+            # Apply the per-sample gains for the release.
+            samples *= envelope
+            # Update the release time remaining for next pass.
+            self.release_time_remaining = max(0, release_time_remaining)
+        elif self.attack_time_remaining > 0.0:
+            # Do attack part of ADSR envelope.
+            attack_time_remaining = self.attack_time_remaining
             # Figure out the gain at the starting time according
             # to a linear ramp.
             start_gain = 1.0 - attack_time_remaining / attack_time
