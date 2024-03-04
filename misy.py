@@ -29,12 +29,8 @@ keyboard = mido.open_input('USB Oxygen 8 v2 MIDI 1')
 # This needs much work.
 out_osc = 0
 
-# Dictionary of currently playing keys, indexed by MIDI key
+# Dictionary of currently playing notes, indexed by MIDI key
 # number.
-#
-# XXX Right now, the values are attack time remaining in
-# seconds.  This will be upgraded to some kind of status
-# objects.
 out_keys = dict()
 
 # Set true to get a printed log message every time a key is
@@ -54,6 +50,67 @@ attack_time = 0.020
 # It would be great if Python provided nonlocal variables
 # with static initialization. It does not.
 sample_clock = 0
+
+# Representation of a note currently being played.
+class Note:
+    def __init__(self, key, osc):
+        self.frequency = key_to_freq(key)
+        self.attack_time_remaining = attack_time
+        self.out_osc = osc
+        self.playing = True
+
+    # Note has been released.
+    def release(self):
+        self.playing = False
+
+    # Accept a time linspace to generate samples in.  Return
+    # that many samples of note being played, or None if
+    # note is over.
+    def samples(self, t):
+        if not self.playing:
+            return None
+
+        frame_count = len(t)
+        out_frequency = self.frequency
+
+        # Pick and generate a waveform.
+        if self.out_osc == 0:
+            samples = np.sin(2 * np.pi * out_frequency * t, dtype=np.float32)
+        elif self.out_osc == 1:
+            samples = (out_frequency * t) % 2.0 - 1.0
+        else:
+            assert False
+
+        # Do attack part of ADSR envelope.
+        attack_time_remaining = self.attack_time_remaining
+        if attack_time_remaining > 0.0:
+            # Figure out the gain at the starting time according
+            # to a linear ramp.
+            start_gain = 1.0 - attack_time_remaining / attack_time
+            # Figure out the time after the last sample, and
+            # adjust the attack_time_remaining to reflect it.
+            end_time = frame_count / sample_rate
+            attack_time_remaining -= end_time
+            # Figure out the gain at the ending time according
+            # to a linear ramp.
+            end_gain = 1.0 - attack_time_remaining / attack_time
+            # Calculate the linear slope over the samples. Make
+            # sure it doesn't go above 1.0 due to finishing the
+            # attack in the middle.
+            #
+            # XXX This should probably be linear in dBFS rather than
+            # linear in amplitude, but meh.
+            envelope = np.clip(
+                np.linspace(start_gain, end_gain, frame_count),
+                0.0,
+                1.0,
+            )
+            # Apply the per-sample gains for the attack.
+            samples *= envelope
+            # Update the attack time remaining for next pass.
+            self.attack_time_remaining = attack_time_remaining
+
+        return samples
 
 # This callback is called by `sounddevice` to get some
 # samples to output. It's the heart of sound generation in
@@ -81,46 +138,22 @@ def output_callback(out_data, frame_count, time_info, status):
             frame_count,
             dtype=np.float32,
         )
-        # Generate the samples for each key and add them into the mix.
-        for key in out_keys:
-            out_frequency = key_to_freq(key)
-
-            # Pick and generate a waveform.
-            if out_osc == 0:
-                samples += np.sin(2 * np.pi * out_frequency * t, dtype=np.float32)
-            elif out_osc == 1:
-                samples += (out_frequency * t) % 2.0 - 1.0
-            else:
-                assert False
-
-            # Do attack part of ADSR envelope.
-            attack_time_remaining = out_keys[key]
-            if attack_time_remaining > 0.0:
-                # Figure out the gain at the starting time according
-                # to a linear ramp.
-                start_gain = 1.0 - attack_time_remaining / attack_time
-                # Figure out the time after the last sample, and
-                # adjust the attack_time_remaining to reflect it.
-                end_time = frame_count / sample_rate
-                attack_time_remaining -= end_time
-                # Figure out the gain at the ending time according
-                # to a linear ramp.
-                end_gain = 1.0 - attack_time_remaining / attack_time
-                # Calculate the linear slope over the samples. Make
-                # sure it doesn't go above 1.0 due to finishing the
-                # attack in the middle.
-                #
-                # XXX This should probably be linear in dBFS rather than
-                # linear in amplitude, but meh.
-                envelope = np.clip(
-                    np.linspace(start_gain, end_gain, frame_count),
-                    0.0,
-                    1.0,
-                )
-                # Apply the per-sample gains for the attack.
-                samples *= envelope
-                # Update the attack time remaining for next pass.
-                out_keys[key] = attack_time_remaining
+        # Set of keys that are done playing and need to be
+        # deleted.
+        on_keys = list(out_keys.keys())
+        del_keys = set()
+        # Generate the samples for each key and add them
+        # into the mix.
+        for key in on_keys:
+            note = out_keys[key]
+            note_samples = note.samples(t)
+            if note_samples is None:
+                del_keys.add(key)
+                continue
+            samples += note_samples
+        # Close the deleted keys.
+        for key in del_keys:
+            del out_keys[key]
 
     # Adjust the gain so that each key gets louder up to
     # some maximum.  If necessary, scale to avoid clipping.
@@ -167,7 +200,7 @@ def process_midi_event():
         velocity = mesg.velocity / 127
         if log_notes:
             print('note on', key, mesg.velocity, round(velocity, 2))
-        out_keys[key] = attack_time
+        out_keys[key] = Note(key, out_osc)
     # Remove a note from the sound. If it is already off,
     # this message will be ignored.
     elif mesg_type == 'note_off':
@@ -176,7 +209,7 @@ def process_midi_event():
         if log_notes:
             print('note off', key, mesg.velocity, velocity)
         if key in out_keys:
-            del out_keys[key]
+            out_keys[key].release()
     # Handle various controls.
     elif mesg.type == 'control_change':
         # XXX Hard-wired for "stop" key on Oxygen8.
