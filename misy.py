@@ -50,6 +50,55 @@ release_time = 0.1
 # with static initialization. It does not.
 sample_clock = 0
 
+# Return a sine wave at frequency f over the given sample
+# times t.
+def sine_samples(t, f):
+    return np.sin(2 * np.pi * f * t)
+
+# Return a rising sawtooth wave at frequency f over the
+# given sample times t.
+def saw_samples(t, f):
+    return (f * t) % 2.0 - 1.0
+
+# Return a square wave at frequency f over the
+# given sample times t.
+def square_samples(t, f):
+    return np.sign((f * t) % 2.0 - 1.0)
+
+# Generate an array of frame_count sample times
+# starting at sample_clock.
+def sample_times(sample_clock, frame_count):
+    return np.linspace(
+        sample_clock / sample_rate,
+        (sample_clock + frame_count) / sample_rate,
+        frame_count,
+        dtype=np.float32,
+    )
+
+wavetable = np.array(sine_samples(sample_times(0, 1024), 750.0), dtype=np.float32)
+nwavetable = len(wavetable)
+wavetable_freq = 750.0
+
+def wave_samples(t, f):
+    step = f / wavetable_freq
+    t0 = (step * t) % nwavetable
+    int_part = np.floor(t0)
+    frac_part = t0 - int_part
+    i0 = int_part.astype(int)
+    i1 = (i0 + 1) % nwavetable
+    x0 = wavetable[i0]
+    x1 = wavetable[i1]
+    return x0 * frac_part + x1 * (1.0 - frac_part)
+
+# Oscillators.
+oscillators = [
+    sine_samples,
+    saw_samples,
+    square_samples,
+    wave_samples,
+]
+
+
 # Representation of a note currently being played.
 class Note:
     def __init__(self, key, osc):
@@ -74,12 +123,7 @@ class Note:
         out_frequency = self.frequency
 
         # Pick and generate a waveform.
-        if self.out_osc == 0:
-            samples = np.sin(2 * np.pi * out_frequency * t, dtype=np.float32)
-        elif self.out_osc == 1:
-            samples = (out_frequency * t) % 2.0 - 1.0
-        else:
-            assert False
+        samples = oscillators[self.out_osc](t, out_frequency)
 
         if self.release_time_remaining is not None:
             # Do release part of ADSR envelope.
@@ -163,12 +207,8 @@ def output_callback(out_data, frame_count, time_info, status):
     # If keys are pressed, generate sounds.
     if out_keys:
         # Time point in seconds for each sample.
-        t = np.linspace(
-            sample_clock / sample_rate,
-            (sample_clock + frame_count) / sample_rate,
-            frame_count,
-            dtype=np.float32,
-        )
+        t = sample_times(sample_clock, frame_count)
+
         # Set of keys that are done playing and need to be
         # deleted.
         on_keys = list(out_keys.keys())
@@ -250,11 +290,15 @@ def process_midi_event():
         # Change output waveform.
         #
         # XXX Hard-wired for "fast-forward" and "reverse"
-        # keys on Oxygen8. Hard-coded for exactly two possible
-        # waveforms.
-        elif mesg.control == 21 or mesg.control == 22:
-            print('program change')
-            out_osc = (out_osc + 1) % 2
+        # keys on Oxygen8.
+        elif mesg.control == 21:
+            print('program change -')
+            n_osc = len(oscillators)
+            out_osc = (out_osc + n_osc - 1) % n_osc
+        elif mesg.control == 22:
+            print('program change +')
+            n_osc = len(oscillators)
+            out_osc = (out_osc + 1) % n_osc
         # Unknown control changes are logged and ignored.
         else:
             print(f"control", mesg.control, mesg.value)
