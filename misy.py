@@ -14,7 +14,7 @@ sample_rate = 48000
 # Blocksize in samples to process. My desktop machine keeps
 # up at this rate, which provides pretty good latency. Slower
 # machines may need larger numbers.
-blocksize = 16
+blocksize = 1024
 
 # XXX Right now the name of the MIDI controller (keyboard)
 # is hard-coded.  This should be fixed somehow. You can use
@@ -24,10 +24,6 @@ blocksize = 16
 #
 # keyboard = mido.open_input('fmlite', virtual=True)
 keyboard = mido.open_input('USB Oxygen 8 v2 MIDI 1')
-
-# XXX Right now, 0 to output sine waves and 1 to output square waves.
-# This needs much work.
-out_osc = 0
 
 # Dictionary of currently playing notes, indexed by MIDI key
 # number.
@@ -67,7 +63,7 @@ def square_samples(t, f):
 
 # Generate an array of frame_count sample times
 # starting at sample_clock.
-def sample_times(sample_clock, frame_count):
+def sample_times(frame_count):
     return np.linspace(
         sample_clock / sample_rate,
         (sample_clock + frame_count) / sample_rate,
@@ -75,7 +71,7 @@ def sample_times(sample_clock, frame_count):
         dtype=np.float32,
     )
 
-wavetable = np.array(sine_samples(sample_times(0, 1024), 750.0), dtype=np.float32)
+wavetable = np.array(sine_samples(sample_times(64), 750.0))
 nwavetable = len(wavetable)
 wavetable_freq = 750.0
 
@@ -98,6 +94,8 @@ oscillators = [
     wave_samples,
 ]
 
+# Index of current oscillator.
+out_osc = 0
 
 # Representation of a note currently being played.
 class Note:
@@ -207,11 +205,11 @@ def output_callback(out_data, frame_count, time_info, status):
     # If keys are pressed, generate sounds.
     if out_keys:
         # Time point in seconds for each sample.
-        t = sample_times(sample_clock, frame_count)
+        t = sample_times(frame_count)
 
-        # Set of keys that are done playing and need to be
-        # deleted.
+        # Set of keys that need playing.
         on_keys = list(out_keys.keys())
+        # Set of keys that need deleting.
         del_keys = set()
         # Generate the samples for each key and add them
         # into the mix.
@@ -222,6 +220,7 @@ def output_callback(out_data, frame_count, time_info, status):
                 del_keys.add(key)
                 continue
             samples += note_samples
+
         # Close the deleted keys.
         for key in del_keys:
             del out_keys[key]
