@@ -7,6 +7,7 @@
 
 import mido, sounddevice
 import numpy as np
+import scipy.io.wavfile as wav
 
 # Sample rate in sps. This doesn't need to be fixed: it
 # could be set to the preferred rate of the audio output.
@@ -14,7 +15,7 @@ sample_rate = 48000
 # Blocksize in samples to process. My desktop machine keeps
 # up at this rate, which provides pretty good latency. Slower
 # machines may need larger numbers.
-blocksize = 1024
+blocksize = 16
 
 # XXX Right now the name of the MIDI controller (keyboard)
 # is hard-coded.  This should be fixed somehow. You can use
@@ -71,13 +72,13 @@ def sample_times(frame_count):
         dtype=np.float32,
     )
 
-wavetable = np.array(sine_samples(sample_times(64), 750.0))
+wavetable = np.array(sine_samples(sample_times(640), 750.0))
 nwavetable = len(wavetable)
 wavetable_freq = 750.0
 
 def wave_samples(t, f):
     step = f / wavetable_freq
-    t0 = (step * t) % nwavetable
+    t0 = (step * t * sample_rate) % nwavetable
     int_part = np.floor(t0)
     frac_part = t0 - int_part
     i0 = int_part.astype(int)
@@ -85,6 +86,16 @@ def wave_samples(t, f):
     x0 = wavetable[i0]
     x1 = wavetable[i1]
     return x0 * frac_part + x1 * (1.0 - frac_part)
+
+test_wavetable = False
+if test_wavetable:
+    test_wave = np.zeros(1, dtype=np.float32)
+    for _ in range(int(sample_rate / blocksize)):
+        t = sample_times(blocksize)
+        test_wave = np.append(test_wave, wave_samples(t, 750))
+        sample_clock += blocksize
+    wav.write("test.wav", sample_rate, test_wave)
+    exit(0)
 
 # Oscillators.
 oscillators = [
