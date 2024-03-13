@@ -12,6 +12,7 @@ from pathlib import Path
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--plugin", help="VST3 plugin")
+ap.add_argument("--parameters", help="show plugin parameters", action="store_true")
 args = ap.parse_args()
 
 # Sample rate in sps. This doesn't need to be fixed: it
@@ -33,14 +34,48 @@ keyboard = mido.open_input('USB Oxygen 8 v2 MIDI 1')
 
 # Possible VST3 plugin for modifying output sound.
 plugin = None
-if args.plugin and Path(args.plugin).is_dir():
-    plugin = pedalboard.VST3Plugin(args.plugin)
+if args.plugin:
+    plugin_args = args.plugin.split(",")
+    plugin_path = plugin_args[0]
+    if not Path(plugin_path).is_dir():
+        print("f{plugin_path}: no plugin")
+        exit(1)
+    plugin = pedalboard.VST3Plugin(plugin_path)
     if not plugin:
-        print(f"{args.plugin}: failed to load plugin")
-    elif not plugin.is_effect:
-        print(f"{args.plugin}: not an effect plugin")
-        plugin = None
-    print(f"{args.plugin}: loaded")
+        print(f"{plugin_path}: failed to load plugin")
+        exit(1)
+    if not plugin.is_effect:
+        print(f"{plugin.name}: not an effect plugin")
+        exit(1)
+    print(f"{plugin.name}: loaded")
+
+    if args.parameters:
+        for p in plugin.parameters:
+            print(f"{p}: {getattr(plugin, p)}")
+        exit(0)
+
+    for param in plugin_args[1:]:
+        fields = param.split("=")
+        if len(fields) != 2:
+            print("format error: {param}")
+            exit(1)
+        name, value = fields
+        try:
+            getattr(plugin, name)
+        except:
+            print(f"{plugin.name}: no parameter {name}")
+            continue
+        try:
+            xvalue = int(value)
+        except:
+            try:
+                xvalue = float(value)
+            except:
+                xvalue = value
+        try:
+            setattr(plugin, name, xvalue)
+        except Exception as e:
+            print(f"{plugin.name} {name}: could not set value {xvalue}: {e}")
 
 # Dictionary of currently playing notes, indexed by MIDI key
 # number.
