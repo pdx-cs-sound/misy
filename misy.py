@@ -265,7 +265,7 @@ def output_callback(out_data, frame_count, time_info, status):
 
     # Optionally apply effect plugin
     if plugin:
-        plugin_samples = plugin.process(sample_data, sample_rate)
+        plugin_samples = plugin.process(sample_data, sample_rate, reset=False)
         if len(plugin_samples) != frame_count:
             print("plugin xrun")
         else:
