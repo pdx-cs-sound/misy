@@ -5,9 +5,10 @@
 # demo of MIDI and synthesis. That said, it is a working
 # instrument.
 
-import mido, sounddevice
+import mido, pedalboard, sounddevice
 import numpy as np
 import scipy.io.wavfile as wav
+from pathlib import Path
 
 # Sample rate in sps. This doesn't need to be fixed: it
 # could be set to the preferred rate of the audio output.
@@ -25,6 +26,17 @@ blocksize = 16
 #
 # keyboard = mido.open_input('fmlite', virtual=True)
 keyboard = mido.open_input('USB Oxygen 8 v2 MIDI 1')
+
+# Possible VST3 plugin for modifying output sound.
+plugin = None
+if Path("plugin.vst3").is_file():
+    plugin = pedalboard.load_plugin(
+        "plugin.vst3",
+        parameter_values = dict(),
+    )
+
+print(plugin)
+exit(0)
 
 # Dictionary of currently playing notes, indexed by MIDI key
 # number.

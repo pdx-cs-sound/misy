@@ -1,3 +1,4 @@
 mido
+pedalboard
 python-rtmidi
 sounddevice
