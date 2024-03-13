@@ -5,10 +5,14 @@
 # demo of MIDI and synthesis. That said, it is a working
 # instrument.
 
-import mido, pedalboard, sounddevice
+import argparse, mido, pedalboard, sounddevice
 import numpy as np
 import scipy.io.wavfile as wav
 from pathlib import Path
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--plugin", help="VST3 plugin")
+args = ap.parse_args()
 
 # Sample rate in sps. This doesn't need to be fixed: it
 # could be set to the preferred rate of the audio output.
@@ -16,7 +20,7 @@ sample_rate = 48000
 # Blocksize in samples to process. My desktop machine keeps
 # up at this rate, which provides pretty good latency. Slower
 # machines may need larger numbers.
-blocksize = 16
+blocksize = 2048
 
 # XXX Right now the name of the MIDI controller (keyboard)
 # is hard-coded.  This should be fixed somehow. You can use
@@ -29,14 +33,14 @@ keyboard = mido.open_input('USB Oxygen 8 v2 MIDI 1')
 
 # Possible VST3 plugin for modifying output sound.
 plugin = None
-if Path("plugin.vst3").is_file():
-    plugin = pedalboard.load_plugin(
-        "plugin.vst3",
-        parameter_values = dict(),
-    )
-
-print(plugin)
-exit(0)
+if args.plugin and Path(args.plugin).is_dir():
+    plugin = pedalboard.VST3Plugin(args.plugin)
+    if not plugin:
+        print(f"{args.plugin}: failed to load plugin")
+    elif not plugin.is_effect:
+        print(f"{args.plugin}: not an effect plugin")
+        plugin = None
+    print(f"{args.plugin}: loaded")
 
 # Dictionary of currently playing notes, indexed by MIDI key
 # number.
@@ -257,9 +261,19 @@ def output_callback(out_data, frame_count, time_info, status):
         samples *= 1.0 / len(out_keys)
 
     # Reshape to have an array of 1 sample for each frame.
+    sample_data = np.reshape(samples, (frame_count, 1))
+
+    # Optionally apply effect plugin
+    if plugin:
+        plugin_samples = plugin.process(sample_data, sample_rate)
+        if len(plugin_samples) != frame_count:
+            print("plugin xrun")
+        else:
+            sample_data = plugin_samples
+
     # Must write into the existing array rather than
     # accidentally copying over the parameter.
-    out_data[:] = np.reshape(samples, (frame_count, 1))
+    out_data[:] = sample_data
 
     # Bump the sample clock for next cycle.
     sample_clock += frame_count
